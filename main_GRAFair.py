@@ -87,7 +87,6 @@ if "args" in locals():
     seed = args.seed
     idx = args.idx
     is_private = args.is_private
-    sensitive_attr = args.sensitive_attr
     is_cuda = "cuda:0"
     use_sensitive_mlp = False
     log_path_name = args.log_path_name
