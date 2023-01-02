@@ -18,7 +18,7 @@ import sys, os
 import gc
 sys.path.append(os.path.join(os.path.dirname("__file__"), '..'))
 sys.path.append(os.path.join(os.path.dirname("__file__"), '..', '..'))
-from model_nc_clf1 import VGPF, SharedBilinearDecoder, train_VGPF
+from model import GRAFair, train_GRAFair
 from pytorch_net.util import str2bool, eval_tuple
 
 from itertools import product,chain
@@ -33,15 +33,13 @@ parser.add_argument('--exp_id', default="exp id", help='experiment ID')
 parser.add_argument('--data_type', default="MovieLens",help='Data type: choose from PROTEINS.')
 parser.add_argument('--model_type', default='GCN', help='Model type: GCN, Cheb, or SAGE')
 parser.add_argument('--train_fraction', type=float, default=1., help='train_fraction')
-parser.add_argument('--beta1', type=float, default=-1, help='beta value')
+parser.add_argument('--beta', type=float, default=-1, help='beta value')
 parser.add_argument('--sample_size', type=int, default=1, help='sample_size')
 parser.add_argument('--num_layers', type=int, default=2, help='num_layers')
 parser.add_argument('--output_emd_dim', type=int, default=20, help='output_emd_dim')
 parser.add_argument('--heads', type=int, default=2, help='heads')
 parser.add_argument('--reparam_mode', default="diag", help='diag, diagg, or full')
 parser.add_argument('--prior_mode', default="mixGau-100", help='prior mode for VIB')
-parser.add_argument('--sensitive_attr', default="gender", help='sensitive attr')
-
 parser.add_argument('--val_use_mean', type=str2bool, nargs='?', const=True, default=True, help='Whether to use mean of Z during validation.')
 parser.add_argument('--reparam_all_layers', type=str, default="(-1,)", help='Whether to reparameterize all layers.')
 parser.add_argument('--epochs', type=int, default=100, help="Number of epochs.")
@@ -55,9 +53,8 @@ parser.add_argument('--date_time', default=date_time, help="Current date and tim
 parser.add_argument('--seed', type=int, default=0, help='seed')
 parser.add_argument('--idx', default="0", help='idx')
 parser.add_argument('--is_private', type=str2bool, nargs='?', const=True, default=False, help='Whether to use private mode.')
-parser.add_argument('--log_path_name', default="../log/VGPF_ml", help='log_path_name')
-parser.add_argument('--emb_save_name', default="./checkpoints/VGPF_ml", help='emb_save_name')
-parser.add_argument('--att_train_rate', type=float, default=0.8, help='gamma for RGCN')
+parser.add_argument('--log_path_name', default="../log/GRAFair", help='log_path_name')
+parser.add_argument('--emb_save_name', default="./checkpoints/GRAFair", help='emb_save_name')
 parser.add_argument('--retrain', type=str2bool, nargs='?', const=True, default=True, help='Whether to retrain the model.')
 parser.add_argument('--dataset', type=str, default= "bail", help = 'Please choose from bail, credit and german.')
 
@@ -69,7 +66,7 @@ if "args" in locals():
     data_type = args.data_type
     model_type = args.model_type
     train_fraction = args.train_fraction
-    beta1 = args.beta1
+    beta = args.beta
     output_emd_dim = args.output_emd_dim
     heads = args.heads
     latent_size = output_emd_dim * 2 // heads # Latent dimension for GCN-based or GAT-based models.
@@ -119,12 +116,12 @@ if lr == -1:
     lr = None
 if weight_decay == -1:
     weight_decay = None
-if beta1 == -1:
-    beta1 = None
-if beta1 is None:
-    beta1_list, reparam_mode, prior_mode = None, None, None
+if beta == -1:
+    beta = None
+if beta is None:
+    beta_list, reparam_mode, prior_mode = None, None, None
 else:
-    beta1_list = np.ones(epochs + 1) * beta1
+    beta_list = np.ones(epochs + 1) * beta
 
 
 best_metrics_list = []
@@ -135,7 +132,7 @@ best_metrics_att_list = []
 for t, seed in enumerate([100,200,300,400,500]):
     print(f"Current args settings:")
     for key in ["model_type", 
-    "prior_mode", "beta1", "is_private", 
+    "prior_mode", "beta", "is_private", 
     "sensitive_attr", "weight_decay", 
     "batch_size", "reparam_all_layers","output_emd_dim"]:
         print(f"{key}: {args[key]}")
@@ -176,10 +173,8 @@ for t, seed in enumerate([100,200,300,400,500]):
     emb_file = f"{emb_save_name}_{seed}.pth"
     is_model_trained = False
     if (retrain) or ((not retrain) and (not os.path.exists(emb_file))):
-        decoder = SharedBilinearDecoder(num_rel, 2, output_emd_dim + sensitive_dim).cuda()
-
         # For GIB-GAT, GAT or GCN:
-        model = VGPF(
+        model = GRAFair(
             model_type=model_type,
             num_features=data.x.size(1),
             num_classes=2,
@@ -203,12 +198,12 @@ for t, seed in enumerate([100,200,300,400,500]):
         print(model)
         print("Training task model")
 
-        data_record, embeddings = train_VGPF(
+        data_record, embeddings = train_GRAFair(
                     model=model,
                     data=data,
                     data_type=data_type,
                     model_type=model_type,
-                    beta1_list=beta1_list,
+                    beta_list=beta_list,
                     epochs=epochs,
                     inspect_interval=20,
                     verbose=True,
@@ -276,7 +271,7 @@ if is_model_trained:
     log_df['dataset'] = dataset
     log_df['num_layers'] = num_layers
     log_df['model_type'] = model_type
-    log_df['beta1'] = -1 if beta1 is None else beta1
+    log_df['beta'] = -1 if beta is None else beta
     log_df['lr'] = lr
     log_df['epochs'] = epochs
     log_df['clf_layers'] = 1
@@ -299,7 +294,7 @@ if is_model_trained:
     log_std['dataset'] = dataset
     log_std['num_layers'] = num_layers
     log_std['model_type'] = model_type
-    log_std['beta1'] = -1 if beta1 is None else beta1
+    log_std['beta'] = -1 if beta is None else beta
     log_std['lr'] = lr
     log_std['epochs'] = epochs
     log_std['clf_layers'] = 1

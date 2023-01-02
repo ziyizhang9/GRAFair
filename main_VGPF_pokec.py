@@ -18,7 +18,7 @@ import sys, os
 import gc
 sys.path.append(os.path.join(os.path.dirname("__file__"), '..'))
 sys.path.append(os.path.join(os.path.dirname("__file__"), '..', '..'))
-from model_nc_clf1 import VGPF, SharedBilinearDecoder, train_VGPF
+from model import VGPF, SharedBilinearDecoder, train_VGPF
 from pytorch_net.util import str2bool, eval_tuple
 
 from itertools import product,chain
