@@ -130,8 +130,7 @@ best_metrics_att_list = []
 for t, seed in enumerate([100,200,300,400,500]):
     print(f"Current args settings:")
     for key in ["model_type", 
-    "prior_mode", "beta", "is_private", 
-    "sensitive_attr", "weight_decay", 
+    "prior_mode", "beta", "is_private", "weight_decay",
     "batch_size", "reparam_all_layers","output_emd_dim"]:
         print(f"{key}: {args[key]}")
     print(f"Current round {t} seed {seed}")
