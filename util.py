@@ -17,11 +17,11 @@ import pickle
 def get_root_dir():
     dirname = os.getcwd()
     dirname_split = dirname.split("/")
-    index = dirname_split.index("VGPF")
+    index = dirname_split.index("GRAFair")
     dirname = "/".join(dirname_split[:index + 1])
     return dirname
 
-VGPF_PATH = get_root_dir() + "/results"
+GRAFair_PATH = get_root_dir() + "/results"
 
 
 COLOR_LIST = ["b", "r", "g", "y", "c", "m", "skyblue", "indigo", "goldenrod", "salmon", "pink",
