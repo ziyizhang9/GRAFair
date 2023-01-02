@@ -90,7 +90,6 @@ if "args" in locals():
     is_cuda = "cuda:0"
     use_sensitive_mlp = False
     log_path_name = args.log_path_name
-    att_train_rate = args.att_train_rate
     retrain = args.retrain
     emb_save_name = args.emb_save_name
     dataset = args.dataset
