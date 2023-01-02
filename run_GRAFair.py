@@ -45,7 +45,7 @@ choices = chain(choices1)
 
 for index, (beta, is_private, dataset, lr, epochs, num_layers, model_type) in enumerate(choices):    # if idx <= 1:
     log_path_name = f"../log/GRAFair_{dataset}_{num_layers}_{model_type}_{beta}_{lr}_{epochs}_1"
-    subprocess.run(f"python main_VGPF.py --beta {beta} --is_private {is_private} --model_type {model_type} --log_path_name {log_path_name} --output_emd_dim {output_emd_dim} --dataset {dataset} --lr {lr} --epochs {epochs} --num_layers {num_layers}" 
+    subprocess.run(f"python main_GRAFair.py --beta {beta} --is_private {is_private} --model_type {model_type} --log_path_name {log_path_name} --output_emd_dim {output_emd_dim} --dataset {dataset} --lr {lr} --epochs {epochs} --num_layers {num_layers}"
      ,shell=True, check=True)
 
 # bail encoder: GCN/GAT/GIN 2-layer, lr: 0.01, epochs: 100, clf: 1-layer
