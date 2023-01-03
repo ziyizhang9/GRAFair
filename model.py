@@ -626,6 +626,7 @@ class GRAFair(torch.nn.Module):
         is_private=False,
         heads=8,
         use_sensitive_mlp=False,
+        num_classifier=2,
     ):
         """Class implementing a general GNN, which can realize GAT, GIB-GAT, GCN.
         
@@ -668,6 +669,7 @@ class GRAFair(torch.nn.Module):
         self.heads = heads
         self.num_sensitive = num_sensitive
         self.use_sensitive_mlp = use_sensitive_mlp
+        self.num_classifier=num_classifier
         self.init()
 
 
@@ -752,15 +754,16 @@ class GRAFair(torch.nn.Module):
                         torch.nn.LeakyReLU(),
                         torch.nn.Linear(self.latent_size * self.heads // 2, self.latent_size * self.heads // 2)).cuda()
         
+        if self.num_classifier == 1:
+            self.classifier = torch.nn.Linear(self.latent_size+2, self.num_classes).cuda()
+        else:
+            self.classifier = torch.nn.Sequential(torch.nn.Linear(self.latent_size + 2, 32),
+                                                  torch.nn.LeakyReLU(),
+                                                  torch.nn.Linear(32, 32),
+                                                  torch.nn.LeakyReLU(),
+                                                  torch.nn.Linear(32, self.num_classes)).cuda()
 
-        # control beta
-        self.classifier = torch.nn.Linear(self.latent_size+2 , self.num_classes).cuda()
-        #self.classifier = torch.nn.Linear(self.latent_size , self.num_classes).cuda()
-        # self.classifier = torch.nn.Sequential(torch.nn.Linear(self.latent_size+2 , 32),
-        #         torch.nn.LeakyReLU(),
-        #         torch.nn.Linear(32, 32),
-        #         torch.nn.LeakyReLU(),
-        #         torch.nn.Linear(32, self.num_classes)).cuda()
+        # self.classifier = torch.nn.Linear(self.latent_size , self.num_classes).cuda()
 
         if self.model_type in ["GCN","SAGE","GAT","GIN"]:
             if self.with_relu:
@@ -959,9 +962,6 @@ def train_GRAFair(
     epochs,
     verbose=True,
     inspect_interval=10,
-    isplot=True,
-    filename=None,
-    compute_metrics=None, # "Silu", "DB", "CH"
     lr=None,
     weight_decay=None,
     save_best_model=False,
@@ -1006,8 +1006,8 @@ def train_GRAFair(
     best_metrics['test_equality'] = 0
     best_metrics['unfairness'] = 0
     best_metrics['robustness'] = 0
-    
-    #data_record = {"num_layers": model.num_layers}
+
+    # data_record = {"num_layers": model.num_layers}
 
     # Train:
     mean_time = []
@@ -1026,10 +1026,10 @@ def train_GRAFair(
             best_embeddings = model.encode(data)[0].detach().clone()
             for key in best_metrics.keys():
                 best_metrics[key] = metrics[key]
-            #if save_best_model:
+            # if save_best_model:
             #    data_record["best_model_dict"] = deepcopy(model.model_dict)
 
-        #record_data(data_record, list(metrics.values()), list(metrics.keys()))
+        # record_data(data_record, list(metrics.values()), list(metrics.keys()))
         if verbose and epoch % inspect_interval == 0:
             print(f"Inspect Epoch:{epoch} \nCurrent Metrics:")
             for k, v in metrics.items():
@@ -1038,116 +1038,8 @@ def train_GRAFair(
             print(f"\nBest Metrics so far:")
             for k, v in best_metrics.items():
                 print(f"{k}: {v} ", end=" ")
-            # #record_data(data_record, [epoch], ["inspect_epoch"])
-            # log = 'Epoch: {:03d}:'.format(epoch) + '\tF1 micro: ({:.4f}, {:.4f}, {:.4f})'.format(metrics["train_f1_micro"], best_val_f1, b_test_f1_micro)
-            # log += compose_log(metrics, "f1_macro", 2)
-            # log += compose_log(metrics, "acc", tabs=2, newline=True) + compose_log(metrics, "loss", 7)
-            # if beta is not None:
-            #     log += "\n\t\tixz: ({:.4f}, {:.4f}, {:.4f})".format(metrics["train_ixz"], metrics["val_ixz"], metrics["test_ixz"])
-            #     if model.struct_dropout_mode[0] == 'DNsampling' or (model.struct_dropout_mode[0] == 'standard' and len(model.struct_dropout_mode) == 3):
-            #         log += " " * 7 + "ixz_DN: ({:.4f}, {:.4f}, {:.4f})".format(metrics["train_ixz_DN"], metrics["val_ixz_DN"], metrics["test_ixz_DN"])
-            #     if "Z_std" in metrics:
-            #         log += "\n\t\tZ_std: {}".format(to_string(metrics["Z_std"], connect=", ", num_digits=4))
-            # if beta2 is not None:
-            #     log += "\n\t\tstruct_kl: {:.4f}".format(metrics["structure_kl"])
-            # if compute_metrics is not None:
-            #     for metric in compute_metrics:
-            #         log += "\n\t"
-            #         for kk in range(model.num_layers):
-            #             List = [metrics["{}{}_{}".format(id, metric, kk)] for id in ["", "train_", "val_", "test_"]]
-            #             log += "\t{}_{}:\t({})".format(metric, kk, "{:.4f}; ".format(List[0]) + to_string(List[1:], connect=", ", num_digits=4))
-            # log += "\n"
-            # print(log)
-            # try:
-            #     sys.stdout.flush()
-            # except:
-            #     pass
 
-
-        # Saving:
-        # if epoch % 200 == 0:
-        #     data_record["model_dict"] = model.model_dict
-        #     if filename is not None:
-        #         make_dir(filename)
-        #         pickle.dump(data_record, open(filename + ".p", "wb"))
-
-    # Plotting:
-    #if isplot:
-    #    plot(data_record, compute_metrics=compute_metrics)
     best_metrics["time"] = sum(mean_time) / len(mean_time)
     return best_metrics, best_embeddings
 
-
-def remove_edge_random(data, remove_edge_fraction):
-    """Randomly remove a certain fraction of edges."""
-    data_c = deepcopy(data)
-    num_edges = int(data_c.edge_index.shape[1] / 2)
-    num_removed_edges = int(num_edges * remove_edge_fraction)
-    edges = [tuple(ele) for ele in to_np_array(data_c.edge_index.T)]
-    for i in range(num_removed_edges):
-        idx = np.random.choice(len(edges))
-        edge = edges[idx]
-        edge_r = (edge[1], edge[0])
-        edges.pop(idx)
-        try:
-            edges.remove(edge_r)
-        except:
-            pass
-    data_c.edge_index = torch.LongTensor(np.array(edges).T).to(data.edge_index.device)
-    return data_c
-
-
-def add_random_edge(data, added_edge_fraction=0):
-    """Add random edges to the original data's edge_index."""
-    if added_edge_fraction == 0:
-        return data
-    data_c = deepcopy(data)
-    num_edges = int(data.edge_index.shape[1] / 2)
-    num_added_edges = int(num_edges * added_edge_fraction)
-    edges = [tuple(ele) for ele in to_np_array(data.edge_index.T)]
-    added_edges = []
-    for i in range(num_added_edges):
-        while True:
-            added_edge_cand = tuple(np.random.choice(data.x.shape[0], size=2, replace=False))
-            added_edge_r_cand = (added_edge_cand[1], added_edge_cand[0])
-            if added_edge_cand in edges or added_edge_cand in added_edges:
-                if added_edge_cand in edges:
-                    assert added_edge_r_cand in edges
-                if added_edge_cand in added_edges:
-                    assert added_edge_r_cand in added_edges
-                continue
-            else:
-                added_edges.append(added_edge_cand)
-                added_edges.append(added_edge_r_cand)
-                break
-
-    added_edge_index = torch.LongTensor(np.array(added_edges).T).to(data.edge_index.device)
-    data_c.edge_index = torch.cat([data.edge_index, added_edge_index], 1)
-    return data_c
-
-def largest_connected_components(adj, n_components=1):
-    """Select the largest connected components in the graph.
-    
-    Adapted from https://github.com/danielzuegner/nettack/blob/master/nettack/utils.py
-
-    Parameters
-    ----------
-    sparse_graph : gust.SparseGraph
-        Input graph.
-    n_components : int, default 1
-        Number of largest connected components to keep.
-
-    Returns
-    -------
-    sparse_graph : gust.SparseGraph
-        Subgraph of the input graph where only the nodes in largest n_components are kept.
-
-    """
-    _, component_indices = connected_components(adj)
-    component_sizes = np.bincount(component_indices)
-    components_to_keep = np.argsort(component_sizes)[::-1][:n_components]  # reverse order to sort descending
-    nodes_to_keep = [
-        idx for (idx, component) in enumerate(component_indices) if component in components_to_keep
-    ]
-    return nodes_to_keep
 

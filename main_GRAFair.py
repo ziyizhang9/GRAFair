@@ -30,9 +30,7 @@ date_time = "{0}-{1}".format(datetime.datetime.now().month, datetime.datetime.no
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--exp_id', default="exp id", help='experiment ID')
-parser.add_argument('--data_type', default="MovieLens",help='Data type: choose from PROTEINS.')
 parser.add_argument('--model_type', default='GCN', help='Model type: GCN, Cheb, or SAGE')
-parser.add_argument('--train_fraction', type=float, default=1., help='train_fraction')
 parser.add_argument('--beta', type=float, default=-1, help='beta value')
 parser.add_argument('--sample_size', type=int, default=1, help='sample_size')
 parser.add_argument('--num_layers', type=int, default=2, help='num_layers')
@@ -57,15 +55,14 @@ parser.add_argument('--log_path_name', default="../log/GRAFair", help='log_path_
 parser.add_argument('--emb_save_name', default="./checkpoints/GRAFair", help='emb_save_name')
 parser.add_argument('--retrain', type=str2bool, nargs='?', const=True, default=True, help='Whether to retrain the model.')
 parser.add_argument('--dataset', type=str, default= "bail", help = 'Please choose from bail, credit and german.')
+parser.add_argument('--num_classifier', type=int, default=2, help = 'Number of layers of the classifier, choose from 1 or 2.')
 
 args = parser.parse_args()
 
 
 if "args" in locals():
     exp_id = args.exp_id
-    data_type = args.data_type
     model_type = args.model_type
-    train_fraction = args.train_fraction
     beta = args.beta
     output_emd_dim = args.output_emd_dim
     heads = args.heads
@@ -124,8 +121,6 @@ else:
 
 best_metrics_list = []
 best_metrics_att_list = []
-
-# sens_attr = 'white'
 
 for t, seed in enumerate([100,200,300,400,500]):
     print(f"Current args settings:")
@@ -191,6 +186,7 @@ for t, seed in enumerate([100,200,300,400,500]):
             is_private=is_private,
             heads=heads,
             use_sensitive_mlp=use_sensitive_mlp,
+            num_classifier=num_classifier,
         )
         print(model)
         print("Training task model")
@@ -204,8 +200,6 @@ for t, seed in enumerate([100,200,300,400,500]):
                     epochs=epochs,
                     inspect_interval=20,
                     verbose=True,
-                    isplot=False,
-                    compute_metrics=None,
                     lr=lr,
                     weight_decay=weight_decay,
                     save_best_model=save_best_model,
@@ -249,19 +243,13 @@ for t, seed in enumerate([100,200,300,400,500]):
     
         data_record['unfairness'] = counterfactual
         data_record['robustness'] = robustness
-
         
         best_metrics_list.append(data_record)
         is_model_trained = True
 
-    # load robustness data
-    
-
 
 if is_model_trained:
     best_metrics_df = pd.DataFrame(best_metrics_list).mean().to_frame().T
-    #best_metrics_df = best_metrics_df.drop(columns=['val_rmse'])
-
 
 if is_model_trained:
     log_df = pd.concat([best_metrics_df],axis=1)
@@ -276,15 +264,12 @@ if is_model_trained:
     log_df['prior_mode'] = prior_mode
     log_df['reparam_all_layers'] = reparam_all_layers
 
-
     log_df_name = f"{log_path_name}.csv"
     log_df.to_csv(log_df_name)
 
 # std
 if is_model_trained:
     best_metrics_std = pd.DataFrame(best_metrics_list).std().to_frame().T
-    #best_metrics_std = best_metrics_std.drop(columns=['val_rmse'])
-
 
 if is_model_trained:
     log_std = pd.concat([best_metrics_std],axis=1)
