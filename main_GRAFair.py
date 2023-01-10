@@ -66,7 +66,7 @@ if "args" in locals():
     beta = args.beta
     output_emd_dim = args.output_emd_dim
     heads = args.heads
-    latent_size = output_emd_dim * 2 // heads # Latent dimension for GCN-based or GAT-based models.
+    latent_size = output_emd_dim * 2 // heads # Latent dimension for GCN-based models.
     sample_size = args.sample_size
     num_layers = args.num_layers
     reparam_mode = args.reparam_mode
@@ -165,7 +165,7 @@ for t, seed in enumerate([100,200,300,400,500]):
     emb_file = f"{emb_save_name}_{seed}.pth"
     is_model_trained = False
     if (retrain) or ((not retrain) and (not os.path.exists(emb_file))):
-        # For GIB-GAT, GAT or GCN:
+        # For GCN, SAGE, Cheb and GIN:
         model = GRAFair(
             model_type=model_type,
             num_features=data.x.size(1),

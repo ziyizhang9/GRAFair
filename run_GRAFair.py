@@ -10,7 +10,7 @@ output_emd_dim = 20
 
 # model_type_choices = ["Cheb","GCN","SAGE"]
 
-model_type_choices = ["GCN","SAGE","GAT","GIN"]
+model_type_choices = ["GCN","SAGE","Cheb","GIN"]
 #model_type_choices = ["GAT"]
 
 beta_choices0 = [-1]

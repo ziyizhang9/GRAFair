@@ -322,174 +322,196 @@ class SAGEConv(MessagePassing):
         return '{}({}, {})'.format(self.__class__.__name__, self.in_channels,
                                    self.out_channels)
 
-# ## GAT
-class GATConv(MessagePassing):
-    r"""The graph attentional operator from the `"Graph Attention Networks"
-    `_ paper
+
+# ## ChebConv
+class ChebConv(MessagePassing):
+    r"""The chebyshev spectral graph convolutional operator from the
+    `"Convolutional Neural Networks on Graphs with Fast Localized Spectral
+    Filtering" <https://arxiv.org/abs/1606.09375>`_ paper
 
     .. math::
-        \mathbf{x}^{\prime}_i = \alpha_{i,i}\mathbf{\Theta}\mathbf{x}_{i} +
-        \sum_{j \in \mathcal{N}(i)} \alpha_{i,j}\mathbf{\Theta}\mathbf{x}_{j},
+        \mathbf{X}^{\prime} = \sum_{k=1}^{K} \mathbf{Z}^{(k)} \cdot
+        \mathbf{\Theta}^{(k)}
 
-    where the attention coefficients :math:`\alpha_{i,j}` are computed as
+    where :math:`\mathbf{Z}^{(k)}` is computed recursively by
 
     .. math::
-        \alpha_{i,j} =
-        \frac{
-        \exp\left(\mathrm{LeakyReLU}\left(\mathbf{a}^{\top}
-        [\mathbf{\Theta}\mathbf{x}_i \, \Vert \, \mathbf{\Theta}\mathbf{x}_j]
-        \right)\right)}
-        {\sum_{k \in \mathcal{N}(i) \cup \{ i \}}
-        \exp\left(\mathrm{LeakyReLU}\left(\mathbf{a}^{\top}
-        [\mathbf{\Theta}\mathbf{x}_i \, \Vert \, \mathbf{\Theta}\mathbf{x}_k]
-        \right)\right)}.
+        \mathbf{Z}^{(1)} &= \mathbf{X}
+
+        \mathbf{Z}^{(2)} &= \mathbf{\hat{L}} \cdot \mathbf{X}
+
+        \mathbf{Z}^{(k)} &= 2 \cdot \mathbf{\hat{L}} \cdot
+        \mathbf{Z}^{(k-1)} - \mathbf{Z}^{(k-2)}
+
+    and :math:`\mathbf{\hat{L}}` denotes the scaled and normalized Laplacian
+    :math:`\frac{2\mathbf{L}}{\lambda_{\max}} - \mathbf{I}`.
 
     Args:
         in_channels (int): Size of each input sample.
         out_channels (int): Size of each output sample.
-        heads (int, optional): Number of multi-head-attentions.
-            (default: :obj:`1`)
-        concat (bool, optional): If set to :obj:`False`, the multi-head
-            attentions are averaged instead of concatenated.
-            (default: :obj:`True`)
-        negative_slope (float, optional): LeakyReLU angle of the negative
-            slope. (default: :obj:`0.2`)
-        struct_dropout_mode (tuple, optional): Choose from: None, ("standard", prob), ("info", ${MODE}),
-            where ${MODE} chooses from "subset", "lognormal", "loguniform".
+        K (int): Chebyshev filter size :math:`K`.
+        normalization (str, optional): The normalization scheme for the graph
+            Laplacian (default: :obj:`"sym"`):
+
+            1. :obj:`None`: No normalization
+            :math:`\mathbf{L} = \mathbf{D} - \mathbf{A}`
+
+            2. :obj:`"sym"`: Symmetric normalization
+            :math:`\mathbf{L} = \mathbf{I} - \mathbf{D}^{-1/2} \mathbf{A}
+            \mathbf{D}^{-1/2}`
+
+            3. :obj:`"rw"`: Random-walk normalization
+            :math:`\mathbf{L} = \mathbf{I} - \mathbf{D}^{-1} \mathbf{A}`
+
+            You need to pass :obj:`lambda_max` to the :meth:`forward` method of
+            this operator in case the normalization is non-symmetric.
+            :obj:`\lambda_max` should be a :class:`torch.Tensor` of size
+            :obj:`[num_graphs]` in a mini-batch scenario and a scalar when
+            operating on single graphs.
+            You can pre-compute :obj:`lambda_max` via the
+            :class:`torch_geometric.transforms.LaplacianLambdaMax` transform.
         bias (bool, optional): If set to :obj:`False`, the layer will not learn
             an additive bias. (default: :obj:`True`)
         **kwargs (optional): Additional arguments of
             :class:`torch_geometric.nn.conv.MessagePassing`.
     """
-    def __init__(self, in_channels, out_channels, heads=1, concat=True,
-                 negative_slope=0.2, reparam_mode=None, prior_mode=None,
-                 struct_dropout_mode=None, sample_size=1,
-                 val_use_mean=True,
-                 bias=True,
-                 **kwargs):
-        super(GATConv, self).__init__(aggr='add', **kwargs)
 
+    def __init__(self, in_channels, out_channels, K, normalization='sym',
+                 reparam_mode=None, prior_mode=None, sample_size=1, val_use_mean=True,
+                 bias=True, **kwargs):
+        super(ChebConv, self).__init__(aggr='add', **kwargs)
+
+        assert K > 0
+        assert normalization in [None, 'sym', 'rw'], 'Invalid normalization'
+
+        self.reparam_mode = None if reparam_mode == "None" else reparam_mode
+        self.prior_mode = prior_mode
+        self.val_use_mean = val_use_mean
+        self.sample_size = sample_size
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.heads = heads
-        self.concat = concat
-        self.negative_slope = negative_slope
-        self.reparam_mode = reparam_mode if reparam_mode != "None" else None
-        self.prior_mode = prior_mode
         self.out_neurons = get_reparam_num_neurons(out_channels, self.reparam_mode)
-        self.struct_dropout_mode = struct_dropout_mode
-        self.sample_size = sample_size
-        self.val_use_mean = val_use_mean
+        self.normalization = normalization
+        self.weight = Parameter(torch.Tensor(K, in_channels, self.out_neurons))
 
-        self.weight = Parameter(torch.Tensor(in_channels,
-                                             heads * self.out_neurons))
-        self.att = Parameter(torch.Tensor(1, heads, 2 * self.out_neurons))
-
-        if bias and concat:
-            self.bias = Parameter(torch.Tensor(heads * self.out_neurons))
-        elif bias and not concat:
+        if bias:
             self.bias = Parameter(torch.Tensor(self.out_neurons))
         else:
             self.register_parameter('bias', None)
-            
+
         if self.reparam_mode is not None:
             if self.prior_mode.startswith("mixGau"):
                 n_components = eval(self.prior_mode.split("-")[1])
-                self.feature_prior = Mixture_Gaussian_reparam(is_reparam=False, Z_size=self.out_channels, n_components=n_components)
+                self.feature_prior = Mixture_Gaussian_reparam(is_reparam=False, Z_size=self.out_channels,
+                                                              n_components=n_components)
 
         self.reset_parameters()
 
     def reset_parameters(self):
         glorot(self.weight)
-        glorot(self.att)
         zeros(self.bias)
 
-    def forward(self, x, edge_index, size=None):
-        
-        x = x.float()
-        self.weight = self.weight.float()
-
-        if size is None and torch.is_tensor(x):
-            edge_index, _ = remove_self_loops(edge_index)
-            edge_index, _ = add_self_loops(edge_index,
-                                           num_nodes=x.size(self.node_dim))
-
-        if torch.is_tensor(x):
-            x = torch.matmul(x, self.weight)
-        else:
-            x = (None if x[0] is None else torch.matmul(x[0], self.weight),
-                 None if x[1] is None else torch.matmul(x[1], self.weight))
-
-        out = self.propagate(edge_index, size=size, x=x)
-
-        if self.reparam_mode is not None:
-            # Reparameterize:
-            out = out.view(-1, self.out_neurons)
-            self.dist, _ = reparameterize(model=None, input=out,
-                                          mode=self.reparam_mode,
-                                          size=self.out_channels,
-                                         )  # dist: [B * head, Z]
-            Z_core = sample(self.dist, self.sample_size)  # [S, B * head, Z]
-            Z = Z_core.view(self.sample_size, -1, self.heads * self.out_channels)  # [S, B, head * Z]
-
-            if self.prior_mode == "Gaussian":
-                self.feature_prior = Normal(loc=torch.zeros(out.size(0), self.out_channels).to(x.device),
-                                            scale=torch.ones(out.size(0), self.out_channels).to(x.device),
-                                           )  # feature_prior: [B * head, Z]
-
-            if self.reparam_mode == "diag" and self.prior_mode == "Gaussian":
-                ixz = torch.distributions.kl.kl_divergence(self.dist, self.feature_prior).sum(-1).view(-1, self.heads).mean(-1)
-            else:
-                Z_logit = self.dist.log_prob(Z_core).sum(-1) if self.reparam_mode.startswith("diag") else self.dist.log_prob(Z_core)  # [S, B * head]
-                prior_logit = self.feature_prior.log_prob(Z_core).sum(-1)  # [S, B * head]
-                # upper bound of I(X; Z):
-                ixz = (Z_logit - prior_logit).mean(0).view(-1, self.heads).mean(-1)  # [B]
-
-            self.Z_std = to_np_array(Z.std((0, 1)).mean())
-            if self.val_use_mean is False or self.training:
-                out = Z.mean(0)
-            else:
-                out = out[:, :self.out_channels].contiguous().view(-1, self.heads * self.out_channels)
-        else:
-            ixz = torch.zeros(x.size(0)).to(x.device)
-
-        structure_kl_loss = torch.zeros([]).to(x.device)
-
-        return out, ixz, structure_kl_loss
-
-    def message(self, edge_index_i, x_i, x_j, size_i):
-        # Compute attention coefficients.
-        x_j = x_j.view(-1, self.heads, self.out_neurons)  # [N_edge, heads, out_channels]
-        if x_i is None:
-            alpha = (x_j * self.att[:, :, self.out_neurons:]).sum(dim=-1)
-        else:
-            x_i = x_i.view(-1, self.heads, self.out_neurons)
-            alpha = (torch.cat([x_i, x_j], dim=-1) * self.att).sum(dim=-1)  # [N_edge, heads]
-
-        alpha = F.leaky_relu(alpha, self.negative_slope)
-        alpha = softmax(alpha, edge_index_i, num_nodes=size_i)
-        return x_j * alpha.view(-1, self.heads, 1)
-
-    def update(self, aggr_out):
-        if self.concat is True:
-            aggr_out = aggr_out.view(-1, self.heads * self.out_neurons)
-        else:
-            aggr_out = aggr_out.mean(dim=1)
-
-        if self.bias is not None:
-            aggr_out = aggr_out + self.bias
-        return aggr_out
-
+    def set_cache(self, cached):
+        self.cached = cached
 
     def to_device(self, device):
         self.to(device)
+        if self.cached and self.cached_result is not None:
+            edge_index, norm = self.cached_result
+            self.cached_result = edge_index.to(device), norm.to(device)
         return self
 
-    def __repr__(self):
-        return '{}({}, {}, heads={})'.format(self.__class__.__name__,
-                                             self.in_channels,
-                                             self.out_channels, self.heads)
+    @staticmethod
+    def norm(edge_index, num_nodes, edge_weight, normalization, lambda_max,
+             dtype=None, batch=None):
 
+        edge_index, edge_weight = remove_self_loops(edge_index, edge_weight)
+
+        edge_index, edge_weight = get_laplacian(edge_index, edge_weight,
+                                                normalization, dtype,
+                                                num_nodes)
+
+        if batch is not None and torch.is_tensor(lambda_max):
+            lambda_max = lambda_max[batch[edge_index[0]]]
+
+        edge_weight = (2.0 * edge_weight) / lambda_max
+        edge_weight[edge_weight == float('inf')] = 0
+
+        edge_index, edge_weight = add_self_loops(edge_index, edge_weight,
+                                                 fill_value=-1,
+                                                 num_nodes=num_nodes)
+
+        return edge_index, edge_weight
+
+    def forward(self, x, edge_index, edge_weight=None, batch=None,
+                lambda_max=None):
+        x = x.float()
+        """"""
+        if self.normalization != 'sym' and lambda_max is None:
+            raise ValueError('You need to pass `lambda_max` to `forward() in`'
+                             'case the normalization is non-symmetric.')
+        lambda_max = 2.0 if lambda_max is None else lambda_max
+
+        edge_index, norm = self.norm(edge_index, x.size(self.node_dim),
+                                     edge_weight, self.normalization,
+                                     lambda_max, dtype=x.dtype, batch=batch)
+
+        Tx_0 = x
+        out = torch.matmul(Tx_0, self.weight[0])
+
+        if self.weight.size(0) > 1:
+            Tx_1 = self.propagate(edge_index, x=x, norm=norm)
+            out = out + torch.matmul(Tx_1, self.weight[1])
+
+        for k in range(2, self.weight.size(0)):
+            Tx_2 = 2 * self.propagate(edge_index, x=Tx_1, norm=norm) - Tx_0
+            out = out + torch.matmul(Tx_2, self.weight[k])
+            Tx_0, Tx_1 = Tx_1, Tx_2
+
+        if self.bias is not None:
+            out = out + self.bias
+
+        if self.reparam_mode is not None:
+            # Reparameterize:
+            self.dist, _ = reparameterize(model=None, input=out,
+                                          mode=self.reparam_mode,
+                                          size=self.out_channels
+                                          )  # [B, Z]
+            Z = sample(self.dist, self.sample_size)  # [S, B, Z]
+
+            if self.prior_mode == "Gaussian":
+                self.feature_prior = Normal(loc=torch.zeros(x.size(0), self.out_channels).to(x.device),
+                                            scale=torch.ones(x.size(0), self.out_channels).to(x.device),
+                                            )  # [B, Z]
+
+            # Calculate prior loss:
+            if self.reparam_mode == "diag" and self.prior_mode == "Gaussian":
+                ixz = torch.distributions.kl.kl_divergence(self.dist, self.feature_prior).sum(-1)
+            else:
+                Z_logit = self.dist.log_prob(Z).sum(-1) if self.reparam_mode.startswith("diag") else self.dist.log_prob(
+                    Z)  # [S, B]
+                prior_logit = self.feature_prior.log_prob(Z).sum(-1)  # [S, B]
+                # upper bound of I(X; Z):
+                ixz = (Z_logit - prior_logit).mean(0)  # [B]
+
+            self.Z_std = to_np_array(Z.std((0, 1)).mean())
+            if self.val_use_mean is False or self.training:
+                out = Z.mean(0)  # [B, Z]
+            else:
+                out = out[:, :self.out_channels]  # [B, Z]
+        else:
+            ixz = torch.zeros(x.size(0)).to(x.device)  # [B]
+
+        structure_kl_loss = torch.zeros([]).to(x.device)
+        return out, ixz, structure_kl_loss
+
+    def message(self, x_j, norm):
+        return norm.view(-1, 1) * x_j
+
+    def __repr__(self):
+        return '{}({}, {}, K={}, normalization={})'.format(
+            self.__class__.__name__, self.in_channels, self.out_channels,
+            self.weight.size(0), self.normalization)
 
 # ## GINConv
 class GINConv(MessagePassing):
@@ -628,15 +650,15 @@ class GRAFair(torch.nn.Module):
         use_sensitive_mlp=False,
         num_classifier=2,
     ):
-        """Class implementing a general GNN, which can realize GAT, GIB-GAT, GCN.
+        """Class implementing a general GNN.
         
         Args:
-            model_type:   name of the base model. Choose from "GAT", "GCN".
+            model_type:   name of the base model. Choose from "GCN", "SAGE", "Cheb", "GIN".
             num_features: number of features of the data.x.
             num_classes:  number of classes for data.y.
             reparam_mode: reparameterization mode for XIB. Choose from "diag" and "full". Default "diag" that parameterizes the mean and diagonal element of the Gaussian
             prior_mode:   distribution type for the prior. Choose from "Gaussian" or "mixGau-{Number}", where {Number} is the number of components for mixture of Gaussian.
-            latent_size:  latent size for each layer of GNN. If model_type="GAT", the true latent size is int(latent_size/2)
+            latent_size:  latent size for each layer of GNN.
             sample_size=1:how many Z to sample for each feature X.
             num_layers=2: number of layers for the GNN
             dropout:      whether to use dropout on features.
@@ -676,7 +698,7 @@ class GRAFair(torch.nn.Module):
     def init(self):
         """Initialize the layers for the GNN."""
         self.reparam_layers = []
-        if self.model_type in ["GCN","SAGE","GAT","GIN"]:
+        if self.model_type in ["GCN","SAGE","Cheb","GIN"]:
             for i in range(self.num_layers):
                 if self.reparam_all_layers is True:
                     is_reparam = True
@@ -714,20 +736,20 @@ class GRAFair(torch.nn.Module):
                                      normalize=self.normalize,
 
                     ))
-                elif self.model_type == "GAT":
+                elif self.model_type == "Cheb":
                     setattr(self, "conv{}".format(i + 1),
-                            GATConv(self.num_features if i == 0 else self.latent_size,
+                            ChebConv(self.num_features if i == 0 else self.latent_size,
                                      self.latent_size,
-                                    #  cached=True,
+                                     K=2,
+                                     #  cached=True,
                                      reparam_mode=self.reparam_mode if is_reparam else None,
                                      prior_mode=self.prior_mode if is_reparam else None,
                                      sample_size=self.sample_size,
                                      # bias=True if self.with_relu else False,
                                      bias=self.with_bias,
                                      val_use_mean=self.val_use_mean,
-                                    #  normalize=self.normalize,
-
-                    ))   
+                                     #  normalize=self.normalize,
+                    ))
                 elif self.model_type == "GIN":
                     setattr(self, "conv{}".format(i + 1),
                             GINConv(self.num_features if i == 0 else self.latent_size,
@@ -765,7 +787,7 @@ class GRAFair(torch.nn.Module):
 
         # self.classifier = torch.nn.Linear(self.latent_size , self.num_classes).cuda()
 
-        if self.model_type in ["GCN","SAGE","GAT","GIN"]:
+        if self.model_type in ["GCN","SAGE","Cheb","GIN"]:
             if self.with_relu:
                 raise NotImplementedError # Modify the parameters
                 reg_params = [getattr(self, "conv{}".format(i+1)).parameters() for i in range(self.num_layers - 1)]
@@ -798,7 +820,7 @@ class GRAFair(torch.nn.Module):
     def encode(self, data, record_Z=False, isplot=False):
         reg_info = {}
         x, edge_index, edge_weight = data.x, data.edge_index, data.edge_attr
-        if self.model_type in ["GCN","SAGE","GAT","GIN"]:
+        if self.model_type in ["GCN","SAGE","Cheb","GIN"]:
             for i in range(self.num_layers - 1):
                 layer = getattr(self, "conv{}".format(i + 1))
                 x, ixz, structure_kl_loss = layer(x, edge_index, edge_weight)
@@ -970,15 +992,11 @@ def train_GRAFair(
     if lr is None:
         if model_type == "GCN":
             lr = 0.01
-        elif model_type == "GAT":
-            lr = 0.01 if data_type.startswith("Pubmed") else 0.005
         else:
             lr = 0.01
     if weight_decay is None:
         if model_type == "GCN":
-            weight_decay = 5e-4 
-        elif model_type == "GAT":
-            weight_decay = 1e-3 if data_type.startswith("Pubmed") else 5e-4
+            weight_decay = 5e-4
         else:
             weight_decay = 5e-4  
 
