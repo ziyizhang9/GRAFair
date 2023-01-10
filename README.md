@@ -14,7 +14,15 @@ cd DeepRobust
 pip install -e .
 ```
 ## Usage
-Run GRAFair on the bail dataset
+Run GRAFair on the bail dataset:
 ```
-python run_GRAFair.py --dataset bail
+sh run_GRAFair_bail.sh
+```
+Run GRAFair on the credit dataset:
+```
+sh run_GRAFair_credit.sh
+```
+Run GRAFair on the german dataset:
+```
+sh run_GRAFair_german.sh
 ```

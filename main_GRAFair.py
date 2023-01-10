@@ -241,7 +241,7 @@ for t, seed in enumerate([100,200,300,400,500]):
                 rb += 1
         robustness = 1- rb / data['test_id_feat'][0].size(0)
     
-        data_record['unfairness'] = counterfactual
+        data_record['cf'] = counterfactual
         data_record['robustness'] = robustness
         
         best_metrics_list.append(data_record)

@@ -914,9 +914,9 @@ def test_model(
     test_pred = test_proba.argmax(1)
     test_labels = data['test_id_feat'][2].detach().cpu().numpy()
 
-    metrics_all['test_sparity'] = 0
-    metrics_all['test_equality'] = 0
-    metrics_all['unfairness'] = 0
+    metrics_all['sp'] = 0
+    metrics_all['eo'] = 0
+    metrics_all['cf'] = 0
     metrics_all['robustness'] = 0
 
 # add the sparity
@@ -952,8 +952,8 @@ def test_model(
     equality = abs( sum(test_pred_0_1) / att_0_1 - sum(test_pred_1_1) / att_1_1 )
 
 
-    metrics_all['test_sparity'] = sparity
-    metrics_all['test_equality'] = equality
+    metrics_all['sp'] = sparity
+    metrics_all['eo'] = equality
 
     metrics_all['test_auc_binary'] = 0
     metrics_all['test_auc_macro'] = 0
@@ -1020,9 +1020,9 @@ def train_GRAFair(
     best_metrics["test_auc_binary"] = 0
     best_metrics["test_auc_macro"] = 0
     best_metrics["test_auc_weighted"] = 0
-    best_metrics['test_sparity'] = 0
-    best_metrics['test_equality'] = 0
-    best_metrics['unfairness'] = 0
+    best_metrics['sp'] = 0
+    best_metrics['eo'] = 0
+    best_metrics['cf'] = 0
     best_metrics['robustness'] = 0
 
     # data_record = {"num_layers": model.num_layers}
