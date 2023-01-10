@@ -195,7 +195,6 @@ for t, seed in enumerate([100,200,300,400,500]):
         data_record, embeddings = train_GRAFair(
                     model=model,
                     data=data,
-                    data_type=data_type,
                     model_type=model_type,
                     beta_list=beta_list,
                     epochs=epochs,

@@ -978,7 +978,6 @@ def test_model(
 def train_GRAFair(
     model,
     data,
-    data_type,
     model_type,
     beta_list,
     epochs,
