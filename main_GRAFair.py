@@ -90,6 +90,7 @@ if "args" in locals():
     retrain = args.retrain
     emb_save_name = args.emb_save_name
     dataset = args.dataset
+    num_classifier = args.num_classifier
     args = vars(args)
 
 
