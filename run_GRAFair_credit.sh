@@ -1,12 +1,12 @@
 #!/bin/bash
 echo "==============GCN================"
-python run_GRAFair.py --beta 0.05 --is_private True --model_type GCN --log_path_name ./log/GRAFair_GCN_credit --dataset credit --lr 0.01 --epochs 100 --num_layers 2 --num_classifier 2
+python main_GRAFair.py --beta 0.05 --is_private True --model_type GCN --log_path_name ./log/GRAFair_GCN_credit --dataset credit --lr 0.01 --epochs 100 --num_layers 2 --num_classifier 2
 
 echo "==============GIN================"
-python run_GRAFair.py --beta 0.01 --is_private True --model_type GIN --log_path_name ./log/GRAFair_GIN_credit --dataset credit --lr 0.01 --epochs 200 --num_layers 1 --num_classifier 2
+python main_GRAFair.py --beta 0.01 --is_private True --model_type GIN --log_path_name ./log/GRAFair_GIN_credit --dataset credit --lr 0.01 --epochs 200 --num_layers 1 --num_classifier 2
 
 echo "==============SAGE================"
-python run_GRAFair.py --beta 0.001 --is_private True --model_type SAGE --log_path_name ./log/GRAFair_SAGE_credit --dataset credit --lr 0.01 --epochs 100 --num_layers 2 --num_classifier 1
+python main_GRAFair.py --beta 0.001 --is_private True --model_type SAGE --log_path_name ./log/GRAFair_SAGE_credit --dataset credit --lr 0.01 --epochs 100 --num_layers 2 --num_classifier 1
 
 echo "==============Cheb================"
-python run_GRAFair.py --beta 0.005 --is_private True --model_type Cheb --log_path_name ./log/GRAFair_Cheb_credit --dataset credit --lr 0.001 --epochs 100 --num_layers 2 --num_classifier 2
+python main_GRAFair.py --beta 0.005 --is_private True --model_type Cheb --log_path_name ./log/GRAFair_Cheb_credit --dataset credit --lr 0.001 --epochs 100 --num_layers 2 --num_classifier 2
